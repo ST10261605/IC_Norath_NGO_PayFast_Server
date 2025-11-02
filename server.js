@@ -56,9 +56,9 @@ app.get('/pay', (req, res) => {
     const pfData = {
       merchant_id: PF_MERCHANT_ID,
       merchant_key: PF_MERCHANT_KEY,
-      return_url: 'https://yourserver.example/thank-you',
-      cancel_url: 'https://yourserver.example/cancel',
-      notify_url: 'https://yourserver.example/payfast-itn', // PayFast will POST here. The ITN is a notification that displays real-time updates about the status of a payment
+      return_url: 'https://ic-norath-ngo-payfast-server.onrender.com/thank-you',
+      cancel_url: 'https://ic-norath-ngo-payfast-server.onrender.com/cancel',
+      notify_url: 'https://ic-norath-ngo-payfast-server.onrender.com/payfast-itn', // PayFast will POST here. The ITN is a notification that displays real-time updates about the status of a payment
       m_payment_id: `don-${Date.now()}`,
       amount: amount,
       item_name: `Donation`

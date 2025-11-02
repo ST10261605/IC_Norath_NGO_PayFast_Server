@@ -1,8 +1,7 @@
-// server.js (Production Ready)
+// server.js (Updated for Sandbox/Production)
 const express = require('express');
 const crypto = require('crypto');
 const qs = require('qs');
-const path = require('path');
 
 const app = express();
 
@@ -10,23 +9,31 @@ const app = express();
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
-// Environment variables (will be set in Render)
+// Environment variables
 const PF_MERCHANT_ID = process.env.PF_MERCHANT_ID;
 const PF_MERCHANT_KEY = process.env.PF_MERCHANT_KEY;
 const PF_PASSPHRASE = process.env.PF_PASSPHRASE;
 const PORT = process.env.PORT || 3000;
+const NODE_ENV = process.env.NODE_ENV || 'development';
+
+// Log environment info (remove in production if sensitive)
+console.log('Environment:', NODE_ENV);
+console.log('Merchant ID:', PF_MERCHANT_ID ? '***' + PF_MERCHANT_ID.slice(-4) : 'Not set');
 
 // Validate required environment variables
-if (!PF_MERCHANT_ID || !PF_MERCHANT_KEY || !PF_PASSPHRASE) {
-    console.error('Missing required environment variables: PF_MERCHANT_ID, PF_MERCHANT_KEY, PF_PASSPHRASE');
-    process.exit(1);
+if (!PF_MERCHANT_ID || !PF_MERCHANT_KEY) {
+    console.error('Missing required environment variables: PF_MERCHANT_ID, PF_MERCHANT_KEY');
+    // Don't exit in production, but log error
+    if (NODE_ENV === 'production') {
+        console.error('Server running without proper PayFast configuration');
+    }
 }
 
 // Order recommended by PayFast
 const PF_ORDER = [
     "merchant_id", "merchant_key", "return_url", "cancel_url", "notify_url",
     "name_first", "name_last", "email_address", "cell_number",
-    "m_payment_id", "amount", "item_name", "item_description"
+    "m_payment_id", "amount", "item_name", "item_description", "custom_int1", "custom_str1"
 ];
 
 function encodeRFC3986(str) {
@@ -44,12 +51,29 @@ function generateSignature(params = {}) {
     if (PF_PASSPHRASE && PF_PASSPHRASE.length) {
         temp += `&passphrase=${encodeRFC3986(PF_PASSPHRASE)}`;
     }
+    console.log('Signature data:', temp); // Debug log
     return crypto.createHash('md5').update(temp).digest('hex');
 }
 
 // Health check endpoint
 app.get('/health', (req, res) => {
-    res.status(200).json({ status: 'OK', timestamp: new Date().toISOString() });
+    res.status(200).json({ 
+        status: 'OK', 
+        timestamp: new Date().toISOString(),
+        environment: NODE_ENV,
+        merchant_id_set: !!PF_MERCHANT_ID
+    });
+});
+
+// Debug endpoint to check configuration
+app.get('/debug', (req, res) => {
+    res.json({
+        environment: NODE_ENV,
+        merchant_id: PF_MERCHANT_ID ? '***' + PF_MERCHANT_ID.slice(-4) : 'Not set',
+        merchant_key_set: !!PF_MERCHANT_KEY,
+        passphrase_set: !!PF_PASSPHRASE,
+        server_url: `https://${req.get('host')}`
+    });
 });
 
 // Pay endpoint
@@ -61,9 +85,18 @@ app.get('/pay', (req, res) => {
             return res.status(400).json({ error: 'Invalid amount' });
         }
 
-        // Use your Render URL for return URLs
-        const baseUrl = process.env.RENDER_URL || `https://${req.get('host')}`;
+        // Use Render URL for return URLs
+        const baseUrl = `https://${req.get('host')}`;
         
+        // Determine PayFast URL based on environment
+        const payfastUrl = NODE_ENV === 'production' 
+            ? 'https://www.payfast.co.za/eng/process'
+            : 'https://sandbox.payfast.co.za/eng/process';
+
+        console.log('Processing payment for amount:', amount);
+        console.log('Using PayFast URL:', payfastUrl);
+        console.log('Base URL:', baseUrl);
+
         const pfData = {
             merchant_id: PF_MERCHANT_ID,
             merchant_key: PF_MERCHANT_KEY,
@@ -73,13 +106,16 @@ app.get('/pay', (req, res) => {
             m_payment_id: `don-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
             amount: amount,
             item_name: `Donation to I.C Norath NGO`,
-            item_description: 'Charitable donation'
+            item_description: 'Charitable donation',
+            email_address: 'test@example.com', // Required for sandbox
+            name_first: 'Test',
+            name_last: 'User'
         };
 
         const signature = generateSignature(pfData);
-        const action = process.env.NODE_ENV === 'production' 
-            ? 'https://www.payfast.co.za/eng/process'
-            : 'https://sandbox.payfast.co.za/eng/process';
+        
+        console.log('Generated signature:', signature);
+        console.log('Payment data:', pfData);
 
         let inputs = '';
         for (const [k, v] of Object.entries(pfData)) {
@@ -96,13 +132,15 @@ app.get('/pay', (req, res) => {
                 body { font-family: Arial, sans-serif; text-align: center; padding: 50px; background: #f5f5f5; }
                 .container { background: white; padding: 40px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); max-width: 500px; margin: 0 auto; }
                 .loading { color: #007bff; font-size: 48px; margin-bottom: 20px; }
+                .debug { background: #f8f9fa; padding: 10px; border-radius: 5px; margin: 10px 0; font-family: monospace; font-size: 12px; text-align: left; }
             </style>
         </head>
         <body onload="document.forms[0].submit();">
             <div class="container">
                 <div class="loading">⟳</div>
                 <p>Redirecting to PayFast checkout for R${amount}...</p>
-                <form action="${action}" method="post">
+                ${NODE_ENV === 'development' ? `<div class="debug">Environment: ${NODE_ENV}<br>Merchant: ${PF_MERCHANT_ID}<br>URL: ${payfastUrl}</div>` : ''}
+                <form action="${payfastUrl}" method="post">
                     ${inputs}
                     <noscript>
                         <button type="submit">Click here to continue to PayFast</button>
@@ -115,7 +153,7 @@ app.get('/pay', (req, res) => {
         res.send(html);
     } catch (e) {
         console.error('Pay endpoint error:', e);
-        res.status(500).json({ error: 'Server error' });
+        res.status(500).json({ error: 'Server error: ' + e.message });
     }
 });
 
@@ -201,5 +239,6 @@ app.post('/payfast-itn', express.urlencoded({ extended: false }), async (req, re
 // Start server
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on port ${PORT}`);
-    console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`Environment: ${NODE_ENV}`);
+    console.log(`Merchant ID: ${PF_MERCHANT_ID ? '***' + PF_MERCHANT_ID.slice(-4) : 'Not set'}`);
 });

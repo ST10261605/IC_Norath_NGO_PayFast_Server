@@ -1,4 +1,4 @@
-// server.js -- sandbox
+// server.js -- PRODUCTION
 const express = require('express');
 const crypto = require('crypto');
 const qs = require('qs');
@@ -6,14 +6,18 @@ const qs = require('qs');
 const app = express();
 app.use(express.urlencoded({ extended: true }));
 
-// configuration
-const PF_MERCHANT_ID = process.env.PF_MERCHANT_ID || '10042229';
-const PF_MERCHANT_KEY = process.env.PF_MERCHANT_KEY || '0qf1h50r8zhd5';
+// PRODUCTION configuration 
+const PF_MERCHANT_ID = process.env.PF_MERCHANT_ID || '31981369';
+const PF_MERCHANT_KEY = process.env.PF_MERCHANT_KEY || 'glcnfq0k5udto';
+const PF_PASSPHRASE = process.env.PF_PASSPHRASE || 'C/aRiTY_/S_g0oD_FOr_t/e_sOuL';
 
-// using passphrase for extra layer of security. It is added to the signature to ensure the data has not been tampered with
-const PF_PASSPHRASE  = process.env.PF_PASSPHRASE  || 'Folks-Student2-Cheese-Important'; 
+// PRODUCTION PayFast URLs
+const PF_PRODUCTION_URL = 'https://www.payfast.co.za/eng/process';
 
-// order recommended by lots of PayFast examples (matches the PayFast doc order)
+//using render URL as production domain
+const RENDER_URL = 'https://ic-norath-ngo-payfast-server.onrender.com';
+
+// order recommended by PayFast
 const PF_ORDER = [
   "merchant_id","merchant_key","return_url","cancel_url","notify_url",
   "name_first","name_last","email_address","cell_number",
@@ -21,13 +25,10 @@ const PF_ORDER = [
 ];
 
 function encodeRFC3986(str) {
-  // ensure encoding is compatible with PayFast requirements
   return encodeURIComponent(str).replace(/[!'()*]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase());
 }
 
-//function to generate the signature
 function generateSignature(params = {}) {
-  // build the parameter string in the PF_ORDER order
   const parts = [];
   for (const key of PF_ORDER) {
     if (params[key] !== undefined && params[key] !== null && String(params[key]) !== '') {
@@ -41,38 +42,29 @@ function generateSignature(params = {}) {
   return crypto.createHash('md5').update(temp).digest('hex');
 }
 
-//getting the /pay endpoint e.g GET /pay?amount=26.80
+// Payment initiation endpoint for production
 app.get('/pay', (req, res) => {
   try {
-    // amount from query: validate this in WIL app when integrating
     const amount = parseFloat(req.query.amount || '0').toFixed(2);
 
-    //if the amount is not a number or less than or equal to 0
     if (isNaN(amount) || Number(amount) <= 0) {
-        return res.status(400).send('invalid amount'); //send a 400 status error as that amount is invalid
+        return res.status(400).send('invalid amount');
     }
 
-    // prepare PayFast fields
     const pfData = {
       merchant_id: PF_MERCHANT_ID,
       merchant_key: PF_MERCHANT_KEY,
-      return_url: 'https://ic-norath-ngo-payfast-server.onrender.com/thank-you',
-      cancel_url: 'https://ic-norath-ngo-payfast-server.onrender.com/cancel',
-      notify_url: 'https://ic-norath-ngo-payfast-server.onrender.com/payfast-itn', // PayFast will POST here. The ITN is a notification that displays real-time updates about the status of a payment
+      // using Render URL
+      return_url: `${RENDER_URL}/thank-you`,
+      cancel_url: `${RENDER_URL}/cancel`,
+      notify_url: `${RENDER_URL}/payfast-itn`,
       m_payment_id: `don-${Date.now()}`,
       amount: amount,
       item_name: `Donation`
     };
 
-    // generate signature
     const signature = generateSignature(pfData);
-
-    // create an auto-submitting HTML form that posts to PayFast sandbox
-
-    //essentially I am using the /pay endpoint to open this html form which posts to the payfast sandbox 
-    //and is opened with the phone's browser
-    
-    const action = 'https://sandbox.payfast.co.za/eng/process';
+    const action = PF_PRODUCTION_URL;
 
     let inputs = '';
     for (const [k,v] of Object.entries(pfData)) {
@@ -80,7 +72,6 @@ app.get('/pay', (req, res) => {
     }
     inputs += `<input type="hidden" name="signature" value="${signature}" />\n`;
 
-    //html form
     const html = `<!doctype html>
     <html><head><meta charset="utf-8"><title>Redirecting to PayFast</title></head>
     <body onload="document.forms[0].submit();">
@@ -99,19 +90,15 @@ app.get('/pay', (req, res) => {
   }
 });
 
-// ITN / notify endpoint (PayFast POSTs here)
+// ITN endpoint for production
 app.post('/payfast-itn', express.urlencoded({ extended: false }), async (req, res) => {
-  // PayFast will POST transaction details here.
-  // I need to:
-  // 1. Verify the signature matches (recompute using my passphrase)
-  // 2. Optionally POST back to PayFast's validate endpoint to confirm the data
-  // 3. Check source IP or validation result and check amounts -- also add rate limiting so that users dont spam on payfast
-  console.log('ITN data received:', req.body);
-  // TODO: recompute signature and verify. Then respond with 200 (to showcase success)
+  console.log('PRODUCTION ITN data received:', req.body);
+  // Implement proper ITN validation for production
+  // This should include signature verification and posting back to PayFast
   res.status(200).send('OK');
 });
 
-// Add thank-you and cancel endpoints for Render
+// thank-you and cancel pages for production
 app.get('/thank-you', (req, res) => {
   const html = `<!DOCTYPE html>
   <html>
@@ -156,7 +143,7 @@ app.get('/cancel', (req, res) => {
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Payment Cancelled</title>
     <style>
-      body { font-family: Arial, sans-serif; text-text-align: center; padding: 50px; background: #f5f5f5; }
+      body { font-family: Arial, sans-serif; text-align: center; padding: 50px; background: #f5f5f5; }
       .container { background: white; padding: 40px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); max-width: 500px; margin: 0 auto; }
       .cancel { color: #dc3545; font-size: 48px; margin-bottom: 20px; }
       h1 { color: #333; margin-bottom: 20px; }
@@ -184,4 +171,4 @@ app.get('/cancel', (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, () => console.log(`PRODUCTION Server running on port ${PORT}`));
